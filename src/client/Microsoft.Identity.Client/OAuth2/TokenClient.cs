@@ -120,10 +120,11 @@ namespace Microsoft.Identity.Client.OAuth2
 
             if (!_requestInProgress)
             {
+                _requestInProgress = true;
+
                 _oAuth2Client.AddHeader(
                     TelemetryConstants.XClientLastTelemetry,
                     _serviceBundle.HttpTelemetryManager.GetLastRequestHeader());
-                _requestInProgress = true;
             }
         }
 

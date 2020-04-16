@@ -68,7 +68,7 @@ namespace Microsoft.Identity.Client.OAuth2
                        .ConfigureAwait(false);
         }
 
-        public async Task<MsalTokenResponse> GetTokenAsync(Uri endPoint, RequestContext requestContext)
+        internal async Task<MsalTokenResponse> GetTokenAsync(Uri endPoint, RequestContext requestContext)
         {
             return await ExecuteRequestAsync<MsalTokenResponse>(endPoint, HttpMethod.Post, requestContext).ConfigureAwait(false);
         }
@@ -79,13 +79,15 @@ namespace Microsoft.Identity.Client.OAuth2
             AddCommonHeaders(requestContext, addCorrelationId);
 
             HttpResponse response = null;
-            Uri endpointUri = CreateFullEndpointUri(endPoint);
+            Uri endpointUri = AddExtraQueryParams(endPoint);
             var httpEvent = new HttpEvent(requestContext.CorrelationId.AsMatsCorrelationId())
             {
                 HttpPath = endpointUri,
                 QueryParams = endpointUri.Query
             };
 
+            requestContext.ServiceBundle.ThrottlingManager.ThrottleIfNeeded(requestContext);
+                
             using (requestContext.CreateTelemetryHelper(httpEvent))
             {
                 if (method == HttpMethod.Post)
@@ -206,7 +208,7 @@ namespace Microsoft.Identity.Client.OAuth2
             var httpErrorCodeMessage = string.Format(CultureInfo.InvariantCulture, "HttpStatusCode: {0}: {1}", (int)response.StatusCode, response.StatusCode.ToString());
             requestContext.Logger.Info(httpErrorCodeMessage);
 
-            Exception exceptionToThrow;
+            MsalServiceException exceptionToThrow;
             try
             {
                 exceptionToThrow = ExtractErrorsFromTheResponse(response, ref shouldLogAsError);
@@ -247,13 +249,13 @@ namespace Microsoft.Identity.Client.OAuth2
                 requestContext.Logger.InfoPii(exceptionToThrow);
             }
 
+            requestContext.ServiceBundle.ThrottlingManager.RecordException(requestContext, exceptionToThrow);
+
             throw exceptionToThrow;
         }
 
-        private static Exception ExtractErrorsFromTheResponse(HttpResponse response, ref bool shouldLogAsError)
+        private static MsalServiceException ExtractErrorsFromTheResponse(HttpResponse response, ref bool shouldLogAsError)
         {
-            Exception exceptionToThrow = null;
-
             // In cases where the end-point is not found (404) response.body will be empty.
             if (string.IsNullOrWhiteSpace(response.Body))
             {
@@ -267,11 +269,6 @@ namespace Microsoft.Identity.Client.OAuth2
                 return null;
             }
 
-            exceptionToThrow = MsalServiceExceptionFactory.FromHttpResponse(
-                msalTokenResponse.Error,
-                msalTokenResponse.ErrorDescription,
-                response);
-
             // For device code flow, AuthorizationPending can occur a lot while waiting
             // for the user to auth via browser and this causes a lot of error noise in the logs.
             // So suppress this particular case to an Info so we still see the data but don't
@@ -282,10 +279,13 @@ namespace Microsoft.Identity.Client.OAuth2
                 shouldLogAsError = false;
             }
 
-            return exceptionToThrow;
+            return MsalServiceExceptionFactory.FromHttpResponse(
+                msalTokenResponse.Error,
+                msalTokenResponse.ErrorDescription,
+                response);
         }
 
-        private Uri CreateFullEndpointUri(Uri endPoint)
+        private Uri AddExtraQueryParams(Uri endPoint)
         {
             var endpointUri = new UriBuilder(endPoint);
             string extraQp = _queryParameters.ToQueryParameter();

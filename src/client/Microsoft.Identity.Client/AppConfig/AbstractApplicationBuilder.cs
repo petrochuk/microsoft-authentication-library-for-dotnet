@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
@@ -62,7 +63,7 @@ namespace Microsoft.Identity.Client
             {
                 throw new ArgumentNullException(instanceDiscoveryJson);
             }
-
+            
             try
             {
                 InstanceDiscoveryResponse instanceDiscovery = JsonHelper.DeserializeFromJson<InstanceDiscoveryResponse>(instanceDiscoveryJson);
